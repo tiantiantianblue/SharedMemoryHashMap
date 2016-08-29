@@ -135,7 +135,6 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 
 	//重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
 	info->shm = get_shm(name);
-
 	if (regions.find(name) == regions.end())
 		regions[name] = make_shared<mapped_region>(*info->shm, read_write);
 	info->region = regions[name];
