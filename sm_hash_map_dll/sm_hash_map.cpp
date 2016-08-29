@@ -96,10 +96,13 @@ static void init2(sm_info* info, size_t* p)
 	info->bucket_head = reinterpret_cast<char*>(++p);
 }
 
-static std::shared_ptr<shared_memory_object> get_shm(const char* name)
+static std::shared_ptr<shared_memory_object> get_shm(const char* name, const sm_info* info)
 {
 	if (shdmems.find(name) == shdmems.end())
+	{
 		shdmems[name] = make_shared<shared_memory_object>(open_or_create, name, read_write);
+		shdmems[name]->truncate(info->kvi_size * info->max_block + 6 * sizeof size_t);
+	}
 	return shdmems[name];
 }
 
@@ -134,7 +137,7 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	init(info, name, key, value, num);
 
 	//重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
-	info->shm = get_shm(name);
+	info->shm = get_shm(name, info);
 	if (regions.find(name) == regions.end())
 		regions[name] = make_shared<mapped_region>(*info->shm, read_write);
 	info->region = regions[name];
@@ -185,6 +188,10 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	return static_cast<SM_HANDLE>(info);
 }
 
+bool increase(sm_info* info)
+{
+
+}
 DLL_API int sm_set(const SM_HANDLE handle, const char* key, const char* value)
 {
 	auto info = static_cast<const sm_info*>(handle);
@@ -227,7 +234,9 @@ DLL_API int sm_set(const SM_HANDLE handle, const char* key, const char* value)
 			//cout << key << " ak->next" << endl;
 			lock_guard<named_mutex> mb_guard(*info->mt_used_block);
 			if (*info->used_block >= info->max_block)
+			{
 				return -2003;
+			}
 			*ak->index = *info->used_block;
 			kvi kn(info, (*info->used_block)++);
 			strcpy(kn.key, key);
