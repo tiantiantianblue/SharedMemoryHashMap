@@ -11,7 +11,7 @@
 using namespace boost::interprocess;
 using namespace std;
 const static size_t mutex_number = 97;
-const static size_t version = 1009;
+const static size_t version = 1013;
 struct sm_info
 {
 	size_t key_size;
@@ -77,16 +77,6 @@ struct kvi
 };
 
 
-static void init(sm_info* info, const char* name, size_t key, size_t value, size_t num)
-{
-	info->name = name;
-	info->key_size = key;
-	info->value_size = value;
-	info->kvi_size = key + value + sizeof size_t;
-	info->bucket_size = static_cast<size_t>(num/ 0.75);
-	info->max_block = static_cast<size_t>(info->bucket_size + num);
-}
-
 static void init2(sm_info* info, size_t* p)
 {
 	info->elements = ++p;
@@ -96,13 +86,11 @@ static void init2(sm_info* info, size_t* p)
 	info->bucket_head = reinterpret_cast<char*>(++p);
 }
 
-static std::shared_ptr<shared_memory_object> get_shm(const char* name, const sm_info* info)
+//重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
+static std::shared_ptr<shared_memory_object> get_shm(const char* name)
 {
 	if (shdmems.find(name) == shdmems.end())
-	{
 		shdmems[name] = make_shared<shared_memory_object>(open_or_create, name, read_write);
-		shdmems[name]->truncate(info->kvi_size * info->max_block + 6 * sizeof size_t);
-	}
 	return shdmems[name];
 }
 
@@ -134,21 +122,26 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	} 
 
 	sm_info* info = new sm_info;
-	init(info, name, key, value, num);
+	info->name = name;
+	info->key_size = key;
+	info->value_size = value;
+	info->kvi_size = key + value + sizeof size_t;
+	info->bucket_size = static_cast<size_t>(num / factor);
+	info->max_block = static_cast<size_t>(info->bucket_size + num);
 
-	//重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
-	info->shm = get_shm(name, info);
+	info->shm = get_shm(name);
+	shdmems[name]->truncate(info->kvi_size * info->max_block + 6 * sizeof size_t);
 	if (regions.find(name) == regions.end())
 		regions[name] = make_shared<mapped_region>(*info->shm, read_write);
 	info->region = regions[name];
 
 	size_t* p = static_cast<size_t*>(info->region->get_address());
-	total_memory(info->shm);
-
 	*p = version;
 	*++p = key;
 	*(++p) = value;
 	*(++p) = num;
+	*(++p) = info->bucket_size;
+	*(++p) = info->max_block;
 	init2(info, p);
 	init_mutex(info);
 	return static_cast<SM_HANDLE>(info);
@@ -162,11 +155,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	if (!name)
 		return NULL;
 
-	//重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
-	if (shdmems.find(name) == shdmems.end())
-		shdmems[name] = make_shared<shared_memory_object>(open_or_create, name, read_write);
-	auto shm = shdmems[name];
-
+	auto shm = get_shm(name);
 	if (!total_memory(shm))
 		return NULL;
 
@@ -178,8 +167,13 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	if (!p || *p!=version)
 		return NULL;
 	sm_info* info = new sm_info;
-	init(info, name, *(p+1), *(p + 2), *(p + 3));
-	init2(info, p + 3);
+	info->name = *++p;
+	info->key_size = *++p;
+	info->value_size = *++p;
+	info->kvi_size = info->key_size + info->value_size + sizeof size_t;
+	info->bucket_size = *(++p);
+	info->max_block = *(++p);
+	init2(info, p);
 
 	init_mutex(info);
 

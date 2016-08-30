@@ -8,8 +8,8 @@
 typedef void* SM_HANDLE;
 
 //勿在同一个进程中使用sm_server_init和sm_client_init
-//name不能含数字且不能超过128字节，key_size为共享内存中key的最大长度，value_size为共享内存中value的最大长度，amount为需要存储的key-value数量
-//返回值为NULL时初始化失败
+//name不能含数字且不能超过128字节，key_size为共享内存中key的最大长度，value_size为共享内存中value的最大长度，
+//amount为需要存储的key-value数量 返回值为NULL时初始化失败 factor为加载因子 一般使用默认值0.75， factor变大则内存占用量变小，操作速度变慢。
 DLL_API SM_HANDLE sm_server_init(const char* name, size_t key_size, size_t value_size, size_t amount, double factor = 0.75);
 
 //在别的进程调用sm_server_init之前 调用该函数 将返回NULL, 跟sm_server_init的版本不一致返回NULL
