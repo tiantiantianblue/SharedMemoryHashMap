@@ -24,7 +24,7 @@ DLL_API int sm_set(const SM_HANDLE, const char* key, const char* value);
 //返回值 0：成功， -1001：某个输入为NULL， -1002：key或value的长度非法， -1003：key不存在
 DLL_API int sm_get(const SM_HANDLE, const char *key, char* value, size_t& len);
 
-//返回值 0：成功， -1：某个输入为NULL， -3：key不存在
+//返回值 0：成功， -3001：某个输入为NULL， -3002：key不存在
 DLL_API int sm_remove(const SM_HANDLE, const char* key);
 
 //删除handle对应的内存，不释放对应的共享内存

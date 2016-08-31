@@ -11,7 +11,7 @@
 using namespace boost::interprocess;
 using namespace std;
 const static size_t mutex_number = 97;
-const static size_t version = 1013;
+const static size_t version = 1019;
 struct sm_info
 {
 	size_t key_size;
@@ -20,8 +20,11 @@ struct sm_info
 	size_t bucket_size;
 	size_t *used_block;
 	size_t *elements;
+	size_t *used_bucket;
+	size_t *free_block;
 	size_t max_block;
 	char* bucket_head;
+	char* extend_head;
 	string name;
 	std::shared_ptr<named_mutex> mt_used_block;
 	std::shared_ptr<named_mutex> mu_elements;
@@ -61,9 +64,10 @@ static void init_mutex(sm_info* info)
 //三个指针对应桶的三个字段的地址，next指向hash_mod值与该桶元素相同的下一个，没有则为nullptr
 struct kvi
 {
-	struct kvi(const sm_info* info, size_t id)
+	struct kvi(const sm_info* info, size_t id_)
 	{
-		key = info->bucket_head + info->kvi_size*id;
+		id = id_;
+		key = info->bucket_head + info->kvi_size*id_;
 		value = key + info->key_size;
 		index = reinterpret_cast<size_t*>(value + info->value_size);
 		//如果index不为0， 则生成桶链表的下一元素，并链接， 如此便可生成完整的桶链表，链表的最后一个元素index值为0 
@@ -73,6 +77,7 @@ struct kvi
 	char* key;
 	char* value;
 	size_t* index;
+	size_t id;
 	std::shared_ptr<kvi> next;
 };
 
@@ -83,7 +88,10 @@ static void init2(sm_info* info, size_t* p)
 	info->used_block = ++p;
 	if (!*info->used_block)
 		*info->used_block = info->bucket_size + 1;
+	info->used_bucket = ++p;
+	info->free_block = ++p;
 	info->bucket_head = reinterpret_cast<char*>(++p);
+	info->extend_head = info->bucket_head + info->bucket_size * info->kvi_size;
 }
 
 //重复打开会导致进程空间地址增长，然后地址空间溢出崩溃，故进程对一个共享内存只打开一次，多线程引用计数共享该shared_memory_object
@@ -126,11 +134,11 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	info->key_size = key;
 	info->value_size = value;
 	info->kvi_size = key + value + sizeof size_t;
-	info->bucket_size = static_cast<size_t>(num / factor);
+	info->bucket_size = static_cast<size_t>(num / factor)+1;
 	info->max_block = static_cast<size_t>(info->bucket_size + num);
 
 	info->shm = get_shm(name);
-	shdmems[name]->truncate(info->kvi_size * info->max_block + 6 * sizeof size_t);
+	shdmems[name]->truncate(info->kvi_size * info->max_block + 128);
 	if (regions.find(name) == regions.end())
 		regions[name] = make_shared<mapped_region>(*info->shm, read_write);
 	info->region = regions[name];
@@ -139,7 +147,6 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	*p = version;
 	*++p = key;
 	*(++p) = value;
-	*(++p) = num;
 	*(++p) = info->bucket_size;
 	*(++p) = info->max_block;
 	init2(info, p);
@@ -167,12 +174,12 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	if (!p || *p!=version)
 		return NULL;
 	sm_info* info = new sm_info;
-	info->name = *++p;
+	info->name = name;
 	info->key_size = *++p;
 	info->value_size = *++p;
 	info->kvi_size = info->key_size + info->value_size + sizeof size_t;
-	info->bucket_size = *(++p);
-	info->max_block = *(++p);
+	info->bucket_size = *++p;
+	info->max_block = *++p;
 	init2(info, p);
 
 	init_mutex(info);
@@ -182,10 +189,6 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	return static_cast<SM_HANDLE>(info);
 }
 
-bool increase(sm_info* info)
-{
-
-}
 DLL_API int sm_set(const SM_HANDLE handle, const char* key, const char* value)
 {
 	auto info = static_cast<const sm_info*>(handle);
@@ -219,22 +222,33 @@ DLL_API int sm_set(const SM_HANDLE handle, const char* key, const char* value)
 			strcpy(ak->value, value);
 			lock_guard<named_mutex> lg_elements(*info->mu_elements);
 			++*info->elements;
+			if (ak->key < info->extend_head)
+				++*info->used_bucket;
 			return 0;
 		}
 
-		//链表搜索完毕，该key仍没找到，则新建一个孔，链表最后一个元素指向新孔，拷贝key-value到新孔
+		//链表搜索完毕，该key仍没找到，则找一个空闲块，链表最后一个元素指向空闲块，拷贝key-value到空闲块
 		if (!ak->next)
 		{
 			//cout << key << " ak->next" << endl;
 			lock_guard<named_mutex> mb_guard(*info->mt_used_block);
-			if (*info->used_block >= info->max_block)
+			if (*info->free_block)
 			{
-				return -2003;
+				*ak->index = *info->free_block;
+				kvi kn(info, *info->free_block);
+				strcpy(kn.key, key);
+				strcpy(kn.value, value);
+				*info->free_block = *kn.index;
 			}
-			*ak->index = *info->used_block;
-			kvi kn(info, (*info->used_block)++);
-			strcpy(kn.key, key);
-			strcpy(kn.value, value);
+			else if (*info->used_block > info->max_block)
+				return -2003;
+			else
+			{
+				*ak->index = *info->used_block;
+				kvi kn(info, (*info->used_block)++);
+				strcpy(kn.key, key);
+				strcpy(kn.value, value);
+			}
 			lock_guard<named_mutex> lg_elements(*info->mu_elements);
 			++*info->elements;
 			return 0;
@@ -274,19 +288,44 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 	auto info = static_cast<const sm_info*>(handle);
 
 	auto ak = make_shared<kvi>(info, get_bucket_no(info, key));
+	auto first = ak;
 	lock_guard<named_mutex> guard(*get_mutex(info, key));
+	std::shared_ptr<kvi> pre_last;
+	//如最后的块不是桶中的块，把最后的块key-value复制到要删除的元素块，最后的块key首字母置为0，最后块的前一块的index置为0
+	//把最后的块index置为当前空闲块首块，空闲块首块置为最后的块。
 	while (ak)
 	{
 		if (strcmp(key, ak->key) == 0)
 		{
-			*ak->key = 0;
+			auto last = ak;
+			while (last->next)
+			{
+				pre_last = last;
+				last = last->next;
+			}
+			if (ak != last)
+			{
+				strcpy(ak->key, last->key);
+				strcpy(ak->value, last->value);
+			}
+			*last->key = 0;
+			//如桶链表中不止一块，则pre_last不为nullptr
+			if (pre_last)
+			{
+				*pre_last->index = 0;
+				*last->index = *info->free_block;
+				*info->free_block = last->id;
+			}
 			lock_guard<named_mutex> lg_elements(*info->mu_elements);
-			--*info->elements;;
+			--*info->elements;
+			if (!*first->key)
+				--*info->used_bucket;
 			return 0;
 		}
+		pre_last = ak;
 		ak = ak->next;
 	}
-	return -3;
+	return -3002;
 }
 
 
@@ -336,7 +375,7 @@ DLL_API double sm_avg_depth(const SM_HANDLE handle)
 	auto info = static_cast<const sm_info*>(handle);
 	if (!*info->elements)
 		return 0;
-	return static_cast<double>(*info->elements) / (*info->elements - (*info->used_block - 1 - info->bucket_size));
+	return static_cast<double>(*info->elements) / *info->used_bucket;
 }
 
 DLL_API size_t sm_key_len(const SM_HANDLE handle)
