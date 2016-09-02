@@ -26,7 +26,6 @@ struct sm_info
 	char* bucket_head;
 	char* extend_head;
 	string name;
-	//std::shared_ptr<named_mutex> mt_used_block;
 	std::shared_ptr<named_mutex> mt_primitive;
 
 	vector<std::shared_ptr<named_mutex>> mtx;
@@ -70,7 +69,7 @@ struct kvi
 		key = info->bucket_head + info->kvi_size*id_;
 		value = key + info->key_size;
 		value_len = reinterpret_cast<size_t*>(value + info->value_size);
-		index = value_len +1;
+		index = value_len + 1;
 		//如果index不为0， 则生成桶链表的下一元素，并链接， 如此便可生成完整的桶链表，链表的最后一个元素index值为0 
 		if (*index&&flag)
 			next = make_shared<kvi>(info, *index);
@@ -199,7 +198,6 @@ DLL_API int sm_set_str(const SM_HANDLE handle, const char* key, const char* valu
 
 inline static void memcpy_0(std::shared_ptr<kvi> des, const void* src, size_t sz)
 {
-	cout << sz << " " << (char*)src << endl;
 	memcpy(des->value, src, sz);
 	*(static_cast<char*>(des->value) + sz) = 0;
 	*des->value_len = sz;
@@ -214,7 +212,6 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 		return -2002;
 	//cout << "id " << get_bucket_no(info, key) << endl;
 	lock_guard<named_mutex> guard(*get_mutex(info, key));
-
 	//获得该key的hash_mode值的桶链表首元素
 	auto ak = make_shared<kvi>(info, get_bucket_no(info, key));
 
@@ -243,6 +240,7 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 		}
 
 		//链表搜索完毕，该key仍没找到，则找一个空闲块，链表最后一个元素指向空闲块，拷贝key-value到空闲块
+
 		if (!ak->next)
 		{
 			//cout << key << " ak->next" << endl;
@@ -255,6 +253,7 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 					free_one = make_shared<kvi>(info, *info->free_block, false);
 					*info->free_block = *free_one->index;
 					*free_one->index = 0;
+					static int cn = 0;
 				}
 				else if (*info->used_block >= info->max_block)
 					return -2003;
@@ -266,7 +265,7 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 				++*info->elements;
 			}
 			strcpy(free_one->key, key);
-			memcpy_0(ak, value, value_len);
+			memcpy_0(free_one, value, value_len);
 			return 0;
 		}
 		ak = ak->next;
@@ -290,8 +289,7 @@ static int sm_get(const SM_HANDLE handle, const char* key, void* value, size_t& 
 			if (len < value_len)
 				return -1002;
 			memcpy(value, ak->value, value_len);
-			cout << "value_len " << value_len <<" value "<<(char*)value<< endl;
-			if (is_str&&len>value_len)
+			if (is_str&&len > value_len)
 				*(static_cast<char*>(value) + value_len) = 0;
 			len = value_len;
 			return 0;
@@ -317,10 +315,10 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 	if (!handle || !key)
 		return -1;
 	auto info = static_cast<const sm_info*>(handle);
+	lock_guard<named_mutex> guard(*get_mutex(info, key));
 
 	auto ak = make_shared<kvi>(info, get_bucket_no(info, key));
 	auto first = ak;
-	lock_guard<named_mutex> guard(*get_mutex(info, key));
 	std::shared_ptr<kvi> to_be_removed;
 	std::shared_ptr<kvi> pre_removed;
 	//如被删除的key的桶链表长度大于1， 调整块的index值， 将被删除块置入空闲块链表中
@@ -333,12 +331,12 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 				if (ak->next)
 				{
 					strcpy(ak->key, ak->next->key);
-					strcpy(ak->value, ak->next->value);
+					memcpy_0(ak, ak->next->value, *ak->next->value_len);
 					*ak->index = *ak->next->index;
 					to_be_removed = ak->next;
 				}
 				else
-					*ak->key = 0;
+				*ak->key = 0;
 			}
 			else
 			{
@@ -347,9 +345,10 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 			}
 
 			//如桶链表中不止一块，则to_be_removed不为nullptr,归还其到空闲链表，并设为链表首元素
-			lock_guard<named_mutex> lg_elements(*info->mt_primitive);
+			lock_guard<named_mutex> primitive_guard(*info->mt_primitive);
 			if (to_be_removed)
 			{
+				static int cn = 0;
 				*to_be_removed->key = 0;
 				*to_be_removed->index = *info->free_block;
 				*info->free_block = to_be_removed->id;
