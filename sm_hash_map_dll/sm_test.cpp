@@ -1,3 +1,4 @@
+//for test
 #include"sm_hash_map.h"
 #include<string>
 #include<iostream>
