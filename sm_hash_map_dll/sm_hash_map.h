@@ -1,10 +1,21 @@
-#pragma once
+#ifndef SM_HASH_MAP_H
+#define SM_HASH_MAP_H
+
+#ifdef __cplusplus
+
+#ifdef _WIN32
 #ifdef MYDLL
 #define DLL_API extern "C" _declspec(dllexport) 
 #else
 #define DLL_API extern "C" _declspec(dllimport) 
 #endif
+#else
+#define DLL_API extern "C"
+#endif
 
+#else
+#define DLL_API
+#endif
 typedef void* SM_HANDLE;
 
 //勿在同一个进程中使用sm_server_init和sm_client_init
@@ -50,3 +61,4 @@ DLL_API size_t sm_version();
 
 //for sm_tools
 DLL_API const char* sm_bucket_head(const SM_HANDLE handle);
+#endif

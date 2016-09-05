@@ -4,7 +4,7 @@
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <boost/interprocess/sync/named_mutex.hpp>
-#include<memory>
+#include<vector>
 #include<mutex>
 #include<iostream>
 #include<atomic>
@@ -55,12 +55,11 @@ static size_t total_memory(std::shared_ptr<shared_memory_object> shm)
 static void init_mutex(sm_info* info)
 {
 	info->mt_primitive = make_shared<named_mutex>(open_or_create, (info->name + "_mt_primitive").c_str());
-	//info->mt_used_block = make_shared<named_mutex>(open_or_create, (info->name + "_used_block").c_str());
 	for (size_t i = 0; i < mutex_number; ++i)
 		info->mtx.push_back(make_shared<named_mutex>(open_or_create, (info->name + to_string(i)).c_str()));
 }
 
-//三个指针对应桶的三个字段的地址，next指向hash_mod值与该桶元素相同的下一个，没有则为nullptr
+//4个指针对应桶的4个字段的地址，next指向hash_mod值与该桶元素相同的下一个，没有则为nullptr
 struct kvi
 {
 	struct kvi(const sm_info* info, size_t id_, bool flag = true)
@@ -134,7 +133,7 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	info->name = name;
 	info->key_size = key;
 	info->value_size = value;
-	info->kvi_size = key + value + 2 * sizeof size_t;
+	info->kvi_size = key + value + 2 * sizeof(size_t);
 	info->bucket_size = static_cast<size_t>(num / factor) + 1;
 	info->max_block = static_cast<size_t>(info->bucket_size + num);
 
@@ -178,7 +177,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	info->name = name;
 	info->key_size = *++p;
 	info->value_size = *++p;
-	info->kvi_size = info->key_size + info->value_size + 2 * sizeof size_t;
+	info->kvi_size = info->key_size + info->value_size + 2 * sizeof(size_t);
 	info->bucket_size = *++p;
 	info->max_block = *++p;
 	init2(info, p);
@@ -215,7 +214,6 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 	//获得该key的hash_mode值的桶链表首元素
 	auto ak = make_shared<kvi>(info, get_bucket_no(info, key));
 
-	//遍历桶链表
 	while (ak)
 	{
 		//key相同，更新value
