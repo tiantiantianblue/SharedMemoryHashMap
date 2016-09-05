@@ -16,6 +16,7 @@
 #else
 #define DLL_API
 #endif
+#include<cstddef>
 typedef void* SM_HANDLE;
 
 //勿在同一个进程中使用sm_server_init和sm_client_init
