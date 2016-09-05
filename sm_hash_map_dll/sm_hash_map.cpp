@@ -62,7 +62,7 @@ static void init_mutex(sm_info* info)
 //4个指针对应桶的4个字段的地址，next指向hash_mod值与该桶元素相同的下一个，没有则为nullptr
 struct kvi
 {
-	struct kvi(const sm_info* info, size_t id_, bool flag = true)
+	kvi(const sm_info* info, size_t id_, bool flag = true)
 	{
 		id = id_;
 		key = info->bucket_head + info->kvi_size*id_;
