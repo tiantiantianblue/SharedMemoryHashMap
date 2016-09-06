@@ -13,7 +13,6 @@ using namespace std;
 const static size_t mutex_number = 97;
 const static size_t version = 1021;
 
-#pragma pack(8)
 struct sm_info
 {
 	size_t key_size;
@@ -146,7 +145,7 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	info->region = regions[name];
 
 	size_t* p = static_cast<size_t*>(info->region->get_address());
-	*p = version+sizeof(sm_info);
+	*p = version;
 	*++p = key;
 	*(++p) = value;
 	*(++p) = info->bucket_size;
@@ -173,7 +172,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	auto region = regions[name];
 	size_t* p = static_cast<size_t*>(region->get_address());
 
-	if (!p || *p != version + sizeof(sm_info))
+	if (!p || *p != version)
 		return NULL;
 	sm_info* info = new sm_info;
 	info->name = name;
