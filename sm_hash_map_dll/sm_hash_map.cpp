@@ -12,6 +12,8 @@ using namespace boost::interprocess;
 using namespace std;
 const static size_t mutex_number = 97;
 const static size_t version = 1021;
+
+#pragma pack(8)
 struct sm_info
 {
 	size_t key_size;
@@ -26,8 +28,8 @@ struct sm_info
 	char* bucket_head;
 	char* extend_head;
 	string name;
-	std::shared_ptr<named_mutex> mt_primitive;
 
+	std::shared_ptr<named_mutex> mt_primitive;
 	vector<std::shared_ptr<named_mutex>> mtx;
 	std::shared_ptr<shared_memory_object> shm;
 	std::shared_ptr<mapped_region> region;
@@ -144,7 +146,7 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	info->region = regions[name];
 
 	size_t* p = static_cast<size_t*>(info->region->get_address());
-	*p = version;
+	*p = version+sizeof(sm_info);
 	*++p = key;
 	*(++p) = value;
 	*(++p) = info->bucket_size;
@@ -171,7 +173,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	auto region = regions[name];
 	size_t* p = static_cast<size_t*>(region->get_address());
 
-	if (!p || *p != version)
+	if (!p || *p != version + sizeof(sm_info))
 		return NULL;
 	sm_info* info = new sm_info;
 	info->name = name;
