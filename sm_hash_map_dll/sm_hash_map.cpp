@@ -10,20 +10,20 @@
 #include<atomic>
 using namespace boost::interprocess;
 using namespace std;
-const static size_t mutex_number = 97;
-const static size_t version = 1021;
+const static unsigned int mutex_number = 97;
+const static unsigned int version = 1021;
 
 struct sm_info
 {
-	size_t key_size;
-	size_t value_size;
-	size_t kvi_size;
-	size_t bucket_size;
-	size_t *used_block;
-	size_t *elements;
-	size_t *used_bucket;
-	size_t *free_block;
-	size_t max_block;
+	unsigned int key_size;
+	unsigned int value_size;
+	unsigned int kvi_size;
+	unsigned int bucket_size;
+	unsigned int *used_block;
+	unsigned int *elements;
+	unsigned int *used_bucket;
+	unsigned int *free_block;
+	unsigned int max_block;
 	char* bucket_head;
 	char* extend_head;
 	string name;
@@ -36,7 +36,7 @@ struct sm_info
 
 static map<string, std::shared_ptr<shared_memory_object> > shdmems;
 static map<string, std::shared_ptr<mapped_region> > regions;
-static size_t get_bucket_no(const sm_info* info, const char* key)
+static unsigned int get_bucket_no(const sm_info* info, const char* key)
 {
 	return hash<string>()(key) % info->bucket_size;
 }
@@ -46,29 +46,29 @@ static std::shared_ptr<named_mutex> get_mutex(const sm_info* info, const char* k
 	return info->mtx[get_bucket_no(info, key) % mutex_number];
 }
 
-static size_t total_memory(std::shared_ptr<shared_memory_object> shm)
+static unsigned int total_memory(std::shared_ptr<shared_memory_object> shm)
 {
 	offset_t size = 0;
 	shm->get_size(size);
-	return static_cast<size_t>(size);
+	return static_cast<unsigned int>(size);
 }
 
 static void init_mutex(sm_info* info)
 {
 	info->mt_primitive = make_shared<named_mutex>(open_or_create, (info->name + "_mt_primitive").c_str());
-	for (size_t i = 0; i < mutex_number; ++i)
+	for (unsigned int i = 0; i < mutex_number; ++i)
 		info->mtx.push_back(make_shared<named_mutex>(open_or_create, (info->name + to_string(i)).c_str()));
 }
 
 //4个指针对应桶的4个字段的地址，next指向hash_mod值与该桶元素相同的下一个，没有则为nullptr
 struct kvi
 {
-	kvi(const sm_info* info, size_t id_, bool flag = true)
+	kvi(const sm_info* info, unsigned int id_, bool flag = true)
 	{
 		id = id_;
 		key = info->bucket_head + info->kvi_size*id_;
 		value = key + info->key_size;
-		value_len = reinterpret_cast<size_t*>(value + info->value_size);
+		value_len = reinterpret_cast<unsigned int*>(value + info->value_size);
 		index = value_len + 1;
 		//如果index不为0， 则生成桶链表的下一元素，并链接， 如此便可生成完整的桶链表，链表的最后一个元素index值为0 
 		if (*index&&flag)
@@ -76,14 +76,14 @@ struct kvi
 	}
 	char* key;
 	char* value;
-	size_t* index;
-	size_t *value_len;
-	size_t id;
+	unsigned int* index;
+	unsigned int *value_len;
+	unsigned int id;
 	std::shared_ptr<kvi> next;
 };
 
 
-static void init2(sm_info* info, size_t* p)
+static void init2(sm_info* info, unsigned int* p)
 {
 	info->elements = ++p;
 	info->used_block = ++p;
@@ -103,7 +103,7 @@ static std::shared_ptr<shared_memory_object> get_shm(const char* name)
 	return shdmems[name];
 }
 
-DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, size_t num, double factor)
+DLL_API SM_HANDLE sm_server_init(const char* name, unsigned int key, unsigned int value, unsigned int num, double factor)
 {
 	named_mutex nm_init(open_or_create, (string(name) + "_initx").c_str());
 	lock_guard<named_mutex> guard(nm_init);
@@ -115,8 +115,8 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 		named_mutex namespace_sm(open_or_create, ("sm_namespaces_shared_mutex"));
 		lock_guard<named_mutex> guard(namespace_sm);
 		shared_memory_object smo(open_or_create, "sm_namespaces", read_write);
-		constexpr size_t name_size = 128;
-		size_t count = 1024;
+		constexpr unsigned int name_size = 128;
+		unsigned int count = 1024;
 		smo.truncate(name_size * count);
 		mapped_region rg(smo, read_write);
 		char *q = static_cast<char*>(rg.get_address());
@@ -134,9 +134,9 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 	info->name = name;
 	info->key_size = key;
 	info->value_size = value;
-	info->kvi_size = key + value + 2 * sizeof(size_t);
-	info->bucket_size = static_cast<size_t>(num / factor) + 1;
-	info->max_block = static_cast<size_t>(info->bucket_size + num);
+	info->kvi_size = key + value + 2 * sizeof(unsigned int);
+	info->bucket_size = static_cast<unsigned int>(num / factor) + 1;
+	info->max_block = static_cast<unsigned int>(info->bucket_size + num);
 
 	info->shm = get_shm(name);
 	shdmems[name]->truncate(info->kvi_size * info->max_block + 128);
@@ -144,7 +144,7 @@ DLL_API SM_HANDLE sm_server_init(const char* name, size_t key, size_t value, siz
 		regions[name] = make_shared<mapped_region>(*info->shm, read_write);
 	info->region = regions[name];
 
-	size_t* p = static_cast<size_t*>(info->region->get_address());
+	unsigned int* p = static_cast<unsigned int*>(info->region->get_address());
 	*p = version;
 	*++p = key;
 	*(++p) = value;
@@ -170,7 +170,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	if (regions.find(name) == regions.end())
 		regions[name] = make_shared<mapped_region>(*shm, read_write);
 	auto region = regions[name];
-	size_t* p = static_cast<size_t*>(region->get_address());
+	unsigned int* p = static_cast<unsigned int*>(region->get_address());
 
 	if (!p || *p != version)
 		return NULL;
@@ -178,7 +178,7 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	info->name = name;
 	info->key_size = *++p;
 	info->value_size = *++p;
-	info->kvi_size = info->key_size + info->value_size + 2 * sizeof(size_t);
+	info->kvi_size = info->key_size + info->value_size + 2 * sizeof(unsigned int);
 	info->bucket_size = *++p;
 	info->max_block = *++p;
 	init2(info, p);
@@ -196,13 +196,13 @@ DLL_API int sm_set_str(const SM_HANDLE handle, const char* key, const char* valu
 }
 
 
-inline static void memcpy_0(std::shared_ptr<kvi> des, const void* src, size_t sz)
+inline static void memcpy_0(std::shared_ptr<kvi> des, const void* src, unsigned int sz)
 {
 	memcpy(des->value, src, sz);
 	*(static_cast<char*>(des->value) + sz) = 0;
 	*des->value_len = sz;
 }
-DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* value, size_t value_len)
+DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* value, unsigned int value_len)
 {
 	auto info = static_cast<const sm_info*>(handle);
 	if (!handle || !key || !value)
@@ -273,7 +273,7 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 }
 
 
-static int sm_get(const SM_HANDLE handle, const char* key, void* value, size_t& len, bool is_str)
+static int sm_get(const SM_HANDLE handle, const char* key, void* value, unsigned int& len, bool is_str)
 {
 	if (!handle || !key || !value)
 		return -1001;
@@ -284,7 +284,7 @@ static int sm_get(const SM_HANDLE handle, const char* key, void* value, size_t& 
 	{
 		if (strcmp(key, ak->key) == 0)
 		{
-			size_t value_len = *ak->value_len;
+			unsigned int value_len = *ak->value_len;
 			if (len < value_len)
 				return -1002;
 			memcpy(value, ak->value, value_len);
@@ -298,12 +298,12 @@ static int sm_get(const SM_HANDLE handle, const char* key, void* value, size_t& 
 	return -1003;
 }
 
-DLL_API int sm_get_str(const SM_HANDLE handle, const char* key, char* value, size_t& len)
+DLL_API int sm_get_str(const SM_HANDLE handle, const char* key, char* value, unsigned int& len)
 {
 	return sm_get(handle, key, value, len, true);
 }
 
-DLL_API int sm_get_bytes(const SM_HANDLE handle, const char* key, void* value, size_t& len)
+DLL_API int sm_get_bytes(const SM_HANDLE handle, const char* key, void* value, unsigned int& len)
 {
 	return sm_get(handle, key, value, len, false);
 }
@@ -371,24 +371,24 @@ DLL_API void sm_release(const SM_HANDLE handle)
 	delete static_cast<const sm_info*>(handle);
 }
 
-static size_t slow_true_size(const sm_info*  info)
+static unsigned int slow_true_size(const sm_info*  info)
 {
 	auto p = info->bucket_head;
-	size_t count = 0;
-	for (size_t i = 0; i < *info->used_block; ++i)
+	unsigned int count = 0;
+	for (unsigned int i = 0; i < *info->used_block; ++i)
 		if (*(p + i*info->kvi_size))
 			++count;
 	return count;
 }
 
-DLL_API size_t sm_size(const SM_HANDLE handle)
+DLL_API unsigned int sm_size(const SM_HANDLE handle)
 {
 	if (!handle)
 		return 0;
 	return *static_cast<const sm_info*>(handle)->elements;
 }
 
-DLL_API size_t sm_memory_use(const SM_HANDLE handle)
+DLL_API unsigned int sm_memory_use(const SM_HANDLE handle)
 {
 	if (!handle)
 		return 0;
@@ -396,7 +396,7 @@ DLL_API size_t sm_memory_use(const SM_HANDLE handle)
 	return (*info->used_block)*info->kvi_size;
 }
 
-DLL_API size_t sm_total_memory(const SM_HANDLE handle)
+DLL_API unsigned int sm_total_memory(const SM_HANDLE handle)
 {
 	if (!handle)
 		return 0;
@@ -413,21 +413,21 @@ DLL_API double sm_avg_depth(const SM_HANDLE handle)
 	return static_cast<double>(*info->elements) / *info->used_bucket;
 }
 
-DLL_API size_t sm_key_len(const SM_HANDLE handle)
+DLL_API unsigned int sm_key_len(const SM_HANDLE handle)
 {
 	if (!handle)
 		return 0;
 	return static_cast<const sm_info*>(handle)->key_size;
 }
 
-DLL_API size_t sm_value_len(const SM_HANDLE handle)
+DLL_API unsigned int sm_value_len(const SM_HANDLE handle)
 {
 	if (!handle)
 		return 0;
 	return static_cast<const sm_info*>(handle)->value_size;
 }
 
-DLL_API size_t sm_version()
+DLL_API unsigned int sm_version()
 {
 	return version;
 }
