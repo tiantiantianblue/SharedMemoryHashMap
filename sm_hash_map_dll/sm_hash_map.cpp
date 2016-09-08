@@ -252,7 +252,6 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 					free_one = make_shared<kvi>(info, *info->free_block, false);
 					*info->free_block = *free_one->index;
 					*free_one->index = 0;
-					static int cn = 0;
 				}
 				else if (*info->used_block >= info->max_block)
 					return -2003;
@@ -347,7 +346,6 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 			lock_guard<named_mutex> primitive_guard(*info->mt_primitive);
 			if (to_be_removed)
 			{
-				static int cn = 0;
 				*to_be_removed->key = 0;
 				*to_be_removed->index = *info->free_block;
 				*info->free_block = to_be_removed->id;

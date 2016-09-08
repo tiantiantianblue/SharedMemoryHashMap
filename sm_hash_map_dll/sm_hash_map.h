@@ -1,3 +1,4 @@
+//如同一机器有多个账户同时使用本库， 则使用本库的进程都需以管理员权限执行
 #ifndef SM_HASH_MAP_H
 #define SM_HASH_MAP_H
 
@@ -16,6 +17,7 @@
 #else
 #define DLL_API
 #endif
+
 #include<cstddef>
 typedef void* SM_HANDLE;
 
@@ -60,6 +62,6 @@ DLL_API unsigned int sm_value_len(const SM_HANDLE handle);
 
 DLL_API unsigned int sm_version();
 
-//for sm_tools
+//for sm_tool
 DLL_API const char* sm_bucket_head(const SM_HANDLE handle);
 #endif
