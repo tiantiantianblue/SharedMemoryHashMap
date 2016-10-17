@@ -11,10 +11,11 @@
 using namespace boost::interprocess;
 using namespace std;
 const static unsigned int mutex_number = 97;
-const static unsigned int version = 1021;
+const static unsigned int version = 1024;
 
 struct sm_info
 {
+	unsigned int *exist;
 	unsigned int key_size;
 	unsigned int value_size;
 	unsigned int kvi_size;
@@ -146,6 +147,8 @@ DLL_API SM_HANDLE sm_server_init(const char* name, unsigned int key, unsigned in
 
 	unsigned int* p = static_cast<unsigned int*>(info->region->get_address());
 	*p = version;
+	*++p = 1;
+	info->exist = p;
 	*++p = key;
 	*(++p) = value;
 	*(++p) = info->bucket_size;
@@ -172,9 +175,10 @@ DLL_API SM_HANDLE sm_client_init(const char* name)
 	auto region = regions[name];
 	unsigned int* p = static_cast<unsigned int*>(region->get_address());
 
-	if (!p || *p != version)
+	if (!p || *p != version || !*++p)
 		return NULL;
 	sm_info* info = new sm_info;
+	info->exist = p;
 	info->name = name;
 	info->key_size = *++p;
 	info->value_size = *++p;
@@ -207,6 +211,9 @@ DLL_API int sm_set_bytes(const SM_HANDLE handle, const char* key, const void* va
 	auto info = static_cast<const sm_info*>(handle);
 	if (!handle || !key || !value)
 		return -2001;
+
+	if (!*info->exist)
+		return -2009;
 
 	if (strlen(key) >= info->key_size || value_len >= info->value_size)
 		return -2002;
@@ -276,7 +283,10 @@ static int sm_get(const SM_HANDLE handle, const char* key, void* value, unsigned
 {
 	if (!handle || !key || !value)
 		return -1001;
+
 	auto info = static_cast<const sm_info*>(handle);
+	if (!*info->exist)
+		return -1009;
 	lock_guard<named_mutex> guard(*get_mutex(info, key));
 	auto ak = make_shared<kvi>(info, get_bucket_no(info, key));
 	while (ak)
@@ -295,6 +305,17 @@ static int sm_get(const SM_HANDLE handle, const char* key, void* value, unsigned
 		ak = ak->next;
 	}
 	return -1003;
+}
+
+DLL_API int sm_delete(const SM_HANDLE handle)
+{
+	if (!handle)
+		return  -4001;
+	auto info = static_cast<const sm_info*>(handle);
+	if (!*info->exist)
+		return -4009;
+	*info->exist = 0;
+	return 0;
 }
 
 DLL_API int sm_get_str(const SM_HANDLE handle, const char* key, char* value, unsigned int& len)
@@ -362,11 +383,12 @@ DLL_API int sm_remove(const SM_HANDLE handle, const char* key)
 }
 
 
-DLL_API void sm_release(const SM_HANDLE handle)
+DLL_API int sm_release(const SM_HANDLE handle)
 {
 	if (!handle)
-		return;
+		return -5001;
 	delete static_cast<const sm_info*>(handle);
+	return 0;
 }
 
 static unsigned int slow_true_size(const sm_info*  info)
